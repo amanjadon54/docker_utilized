@@ -1,0 +1,95 @@
+def GITHUB_REPO = "git@github.com:url.git"
+def RELEASE_NAME = "staging-trx-auditing-service-api-1"
+def DOCKER_REPOSITORY = "docker/repo" 
+def TEAM = "abc" 
+def PROJECT = "abc_service" 
+def DEPLOY_TIMEOUT = "2000" // Increase this further if you think your service needs more time to start 
+TO_EMAIL = "tr.tech@sample.com"
+
+@Library('somlibs') _
+mailSent = false
+def sendEmail() {
+    script {
+        if (!mailSent) {
+            emailext(
+                    to: "${TO_EMAIL}", recipientProviders: [developers(),culprits()],
+                    replyTo: 'devops@sample.com',
+                    subject: "${JOB_NAME} - Build # ${BUILD_NUMBER} - ${currentBuild.currentResult}",
+                    body: "Hi!\n${JOB_NAME} - Build # ${BUILD_NUMBER} - ${currentBuild.currentResult}:\n" +
+                            "\nCheck the build pipeline at ${JOB_URL} to view the results.",
+            )
+            mailSent = true
+        }
+    }
+}
+
+pipeline {
+    agent {
+        label "ap-se-1-master"
+    }
+    tools {
+        jdk 'jdk-8'
+        maven 'mvn35'
+     }
+stages{
+    stage("Checkout code"){
+        steps{
+            script{
+                checkout([
+                $class: 'GitSCM',
+                branches: [
+                    [name: "${params.branch}"]
+                ],
+                doGenerateSubmoduleConfigurations: false,
+                extensions: [],
+                submoduleCfg: [],
+                userRemoteConfigs: [[
+                    credentialsId: 'abc-sample',
+                    url: "${GITHUB_REPO}"]]])
+            }
+        }
+    }
+
+    stage("Image build and push") {
+        environment {
+        DOCKER_REPOSITORY = "$DOCKER_REPOSITORY"
+        PROJECT = "$PROJECT"
+      }
+        steps {
+            script {
+                sh '''
+          echo "Maven build started"
+          echo "M2_HOME = ${M2_HOME}"
+          mvn clean install -DskipTests
+          '''
+          IMAGE = sample.build(repository : "$DOCKER_REPOSITORY")
+            }
+        }
+    }
+
+    stage('deployment'){
+        agent {
+            label "singapore-stg-k8s-0"
+        }
+        steps {
+            script {
+                helm.deploy_microservice("$RELEASE_NAME", "$IMAGE", "$DEPLOY_TIMEOUT")
+            }
+        }
+    }
+}
+
+post {
+          changed {
+              sendEmail()
+          }
+          failure {
+              sendEmail()
+          }
+          success {
+              sh """
+
+              """
+          }
+      }
+}
